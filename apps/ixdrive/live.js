@@ -222,6 +222,12 @@ module.exports = function live(ctx, sh) {
         live.kw = kw; live.kwT = now;
         push(trace, TRACE_S, kw);
         learnBaseline(kw, now);
+        if (sh.onSample) {
+            const d = data();
+            sh.onSample({ t: now, kw, speed: speedNow(),
+                soc: L.socT && now - L.socT < 60000 ? L.soc : null,
+                temp: d.cellT && !d.stale.cellT ? d.cellT.avg : null, ambient: L.ambient });
+        }
     }
     // how fast power is really read while shown (logged every 30 s): reads, time per read, time queued
     const perf = { n: 0, ms: 0, wait: 0, maxWait: 0, t: Date.now() };
@@ -945,6 +951,7 @@ module.exports = function live(ctx, sh) {
                 net: has ? tp.out - tp.regen : null, regen: has ? tp.regen : null,
                 perKm: tp.km >= 1 ? tp.driveKwh / tp.km : null,
                 batteryTemp: ct && G.isNum(ct.avg) ? ct.avg : null,
+                cellSpreadMv: d.cellV && !(d.stale && d.stale.cellV) && G.isNum(d.cellV.min) && G.isNum(d.cellV.max) ? (d.cellV.max - d.cellV.min) * 1000 : null,
                 volts: d.v, peakOut: has ? tp.peakOut : null,
             };
         },

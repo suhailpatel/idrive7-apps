@@ -13,11 +13,12 @@ const { DidReader } = require('./kit/dids');
 const { t: translate, plural } = require('./kit/i18n');
 const { RangeModel } = require('./range');
 const startLive = require('./live');
+const { Insights, journeyStats, demoInsights } = require('./insights');
 const { createActivity, normalizeSoc, chargeEstimate, CapacityLearner } = require('./ev');
 
 const W = 1600, H = 520;
 const GO = '#2fd27a';
-const PAGES = ['main', 'energy', 'battery', 'charging', 'log', 'diag'];
+const PAGES = ['main', 'energy', 'battery', 'charging', 'log', 'journeys', 'lab', 'trends', 'diag'];
 const DIAG_PARTS = ['diag', 'unit', 'scan', 'signals'];
 const DIAG_STEP = 492;           // each part is a full page (panel 44..512) plus a gap
 /** Comfort consumers, estimated from their levels (kW): seat heating per level 0..3, steering wheel. */
@@ -86,6 +87,7 @@ mgu.run({
         };
         // Preserve completed charge history, but never combine different SOC/capacity calibrations.
         if (st.basis !== basis()) resetLearning();
+        const insights = new Insights(st.insights || (st.insights = {}), basis());
         const model = new RangeModel(st, () => kwhPerPct());
         const capacityLearner = new CapacityLearner(st.capacityLearning || (st.capacityLearning = {}));
         const activity = createActivity();
@@ -378,6 +380,10 @@ mgu.run({
         let busy = false, pollTimer = null, sohFailT = 0;
         async function poll(forceSoh) {
             if (forceSoh) activity.touch();
+            if (!usingDemo()) {
+                insights.tick(Date.now());
+                if (Date.now() - savedAt > 120000 && JSON.stringify(st) !== saved) save();
+            }
             if (busy || !diag.available || !active() || usingDemo()) return;
             busy = true;
             try {
@@ -394,6 +400,13 @@ mgu.run({
                     const soh = await readValue('soh');
                     if (soh !== null) { live.soh = soh; live.sohT = Date.now(); st.soh = soh; st.sohT = live.sohT; save(); }
                     else sohFailT = Date.now();
+                }
+                if (lv) {
+                    const b = lv.dashboard(), c = capacityNow();
+                    insights.battery({ t: Date.now(), temp: b.batteryTemp, spread: b.cellSpreadMv,
+                        soc: live.socT && Date.now() - live.socT < 60000 ? live.soc : null,
+                        capacity: c.kwh, source: c.source,
+                        capacityT: c.source === 'reported' ? live.capacityT : capacityLearner.state.t });
                 }
                 const v = await readValue('v12');
                 if (v !== null) { live.v12 = v; live.v12T = Date.now(); }
@@ -452,7 +465,14 @@ mgu.run({
             : ms < 172800000 ? Math.round(ms / 3600000) + ' h ago' : Math.round(ms / 86400000) + ' days ago');
 
         /* ---------- drawing ---------- */
-        let page = 0;
+        let page = 0, journeyOffset = 0, chargeOffset = 0;
+        const browseHistory = (kind, step) => {
+            const h = insightData(data());
+            const count = kind === 'journeys' ? h.journeys.length + (h.journey ? 1 : 0) : h.charges.length + (h.charge ? 1 : 0);
+            if (kind === 'journeys') journeyOffset = G.clamp(journeyOffset + step, 0, Math.max(0, count - 1));
+            else chargeOffset = G.clamp(chargeOffset + step, 0, Math.max(0, count - 1));
+            return render();
+        };
         // the climate's typical draw for this drive's totals while nothing better is known (the Energy page's estimate)
         const climateKw = () => {
             if (live.climate === false || live.climate == null || kwhPerPct() === null) return 0;
@@ -465,7 +485,12 @@ mgu.run({
             const km = G.isNum(soc) ? estimate(soc, live.ambient, null, paceNow(), comfortKw()).mid : null;
             return (G.isNum(km) ? Math.round(D(km)) : '--') + ' ' + dU();
         };
-        lv = startLive(ctx, { diag, reader, exclusive, live, climateKw, rangeText, active, demoSoc: () => demo.sample().soc, touch: () => activity.touch(), kwhPerPct, page: () => (pages()[page] === 'diag' ? 'scan' : pages()[page]) });
+        lv = startLive(ctx, { diag, reader, exclusive, live, climateKw, rangeText, active, onSample: (sample) => {
+            if (usingDemo()) return;
+            const j = st.insights.journey, c = st.insights.charge;
+            insights.observe(sample);
+            if (j !== st.insights.journey || c !== st.insights.charge || Date.now() - savedAt > 120000) save();
+        }, demoSoc: () => demo.sample().soc, touch: () => activity.touch(), kwhPerPct, page: () => (pages()[page] === 'diag' ? 'scan' : pages()[page]) });
         const isLive = (p) => lv.PAGES.indexOf(p) >= 0;
 
         /* ---------- for other apps (Cluster functions' HUD): the power now and the range, four times a second ----------
@@ -489,7 +514,7 @@ mgu.run({
         // the first bar button: "Read now", on the live pages their own action (this drive's totals, the scan)
         let actionText = 'Read now';
         const actionLabel = () => {
-            const p = pages()[page], txt = (isLive(p) && lv.actionLabel(p)) || 'Read now';
+            const p = pages()[page], txt = p === 'journeys' ? 'Older trips' : p === 'lab' ? 'Older session' : (isLive(p) && lv.actionLabel(p)) || 'Read now';
             if (txt !== actionText) { actionText = txt; ui.text('BTN_READ', txt); }
         };
         const turn = (n) => { page = n; activity.touch(); poll(false); actionLabel(); return render(); };
@@ -498,6 +523,7 @@ mgu.run({
         ctx.onTab((i) => turn(i));
         ui.onClick('BTN_READ', () => {
             const p = pages()[page];
+            if (p === 'journeys' || p === 'lab') return browseHistory(p, p === 'journeys' ? 7 : 1);
             if (isLive(p) && lv.actionLabel(p)) { lv.action(p); return render(); }
             return poll(true).then(render);
         });
@@ -505,7 +531,9 @@ mgu.run({
         ctx.hideButton('BTN_READ');
         const diagScroll = { y: 0, max: 0 };
         ctx.onScroll((dy) => {
-            if (pages()[page] !== 'diag') return false;
+            const p = pages()[page];
+            if (p === 'journeys' || p === 'lab') { browseHistory(p, Math.sign(dy)); return true; }
+            if (p !== 'diag') return false;
             const y = G.clamp(diagScroll.y + dy, 0, diagScroll.max), moved = y !== diagScroll.y;
             diagScroll.y = y;
             return moved;
@@ -513,7 +541,7 @@ mgu.run({
 
         /** G20-style frame: tab bar with the page names along the top. */
         function header(cv, t, d) {
-            const names = Object.assign({ main: 'Range', energy: 'Energy', charging: 'Charging', log: 'Charge log', diag: 'Diagnostic', signals: 'Signals' }, lv.NAMES);
+            const names = Object.assign({ main: 'Range', energy: 'Energy', charging: 'Charging', log: 'Charge log', journeys: 'Journeys', lab: 'Charge lab', trends: 'Trends', diag: 'Diagnostic', signals: 'Signals' }, lv.NAMES);
             G.frame(cv, t, pages().map((p) => names[p]), page, [d.demo && { text: 'DEMO' }]);
         }
 
@@ -871,6 +899,114 @@ mgu.run({
             cv.text(kmTxt(rr), x0 + w0 - 24, 490 + ex, 40, measured ? t.text : t.dim, { font: 'bold', align: 'right' });
         }
 
+        const insightData = d => d.demo ? demoInsights(Date.now()) : insights.view();
+        const efficiencyText = v => G.isNum(v) ? G.fmt(v * 100 / D(1), 1) : '--';
+        const shortDate = ms => { const d = new Date(ms); return pad(d.getDate()) + '.' + pad(d.getMonth() + 1); };
+
+        function renderJourneys(cv, t, d) {
+            const history = insightData(d), all = history.journeys.concat(history.journey ? [history.journey] : []);
+            const ex = G.panel(cv, t, 24, 44, 1040, 468, 'Journey journal').h - 468;
+            journeyOffset = G.clamp(journeyOffset,0,Math.max(0,all.length-1));
+            const rows = all.slice().reverse().slice(journeyOffset,journeyOffset+7);
+            cv.scroll = all.length > 7;
+            G.button(cv,t,776,54,120,38,'Newer',()=>browseHistory('journeys',-7),{key:'journey-newer',busy:!journeyOffset});
+            G.button(cv,t,916,54,120,38,'Older',()=>browseHistory('journeys',7),{key:'journey-older',busy:journeyOffset+7>=all.length});
+            const xs = [48, 255, 390, 540, 700, 850];
+            ['START', 'DISTANCE', 'ENERGY', 'PER 100 ' + dU().toUpperCase(), 'OUTSIDE', 'RECORD'].forEach((v,i) => cv.text(v,xs[i],125,18,t.dim,{font:'bold'}));
+            if (!rows.length) cv.text('Journeys appear as you drive.',544,285,28,t.dim,{align:'center'});
+            rows.forEach((j,i) => {
+                const y = 177 + i * (43 + ex / 7), ambient = j.ambientN ? j.ambientSum / j.ambientN : null;
+                if (i%2===0) cv.roundRect(40,y-27,1008,39,6,withAlpha(t.track,.5));
+                const values = [dateOf(j.start), num(D(j.km),1,dU()), num(j.kwh,2,'kWh'),
+                    efficiencyText(j.km>=1 ? j.kwh/j.km : null), num(T(ambient),0,tU()),
+                    j === history.journey ? 'LIVE' : j.partial ? 'PARTIAL' : Math.round(j.seconds/60)+' min'];
+                values.forEach((v,k) => cv.text(v,xs[k],y,23,k===5 && j===history.journey ? GO : t.text,{font:'label'}));
+            });
+            cv.text('Recorded intervals · cost at current tariff',48,490+ex,18,t.dim);
+            cv.text(all.length ? (journeyOffset+1)+' - '+Math.min(all.length,journeyOffset+7)+' / '+all.length : '',1040,490+ex,18,t.dim,{align:'right'});
+            G.panel(cv,t,1088,44,488,468,'Last 7 days');
+            const now = Date.now(), week = 7*86400000;
+            const same = all.filter(j=>j.era===(history.era || 0));
+            const current = same.filter(j=>j.start>=now-week), previous = same.filter(j=>j.start>=now-2*week && j.start<now-week);
+            const a = journeyStats(current), b = journeyStats(previous);
+            cv.text(G.fmt(D(a.km),1),1112,183,68,t.text,{font:'num'});
+            cv.text(dU()+' recorded',1552,183,24,t.dim,{align:'right'});
+            row(cv,t,1112,440,255,'TRIPS',String(a.count));
+            row(cv,t,1112,440,311,'NET ENERGY',num(a.kwh,1,'kWh'));
+            row(cv,t,1112,440,367,'AVG / 100 '+dU().toUpperCase(),efficiencyText(a.perKm)+' kWh');
+            const delta = a.perKm>0 && b.perKm>0 ? (a.perKm/b.perKm-1)*100 : null;
+            row(cv,t,1112,440,423,'VS PRIOR WEEK',G.isNum(delta)?signed(delta,0,'%'):'--',delta<0?GO:t.text);
+            row(cv,t,1112,440,482+ex,'EST. COST',a.count ? money(Math.max(0,a.kwh)) || '--' : '--');
+        }
+
+        function renderChargeLab(cv,t,d) {
+            const history = insightData(d), all = history.charges.concat(history.charge ? [history.charge] : []);
+            chargeOffset=G.clamp(chargeOffset,0,Math.max(0,all.length-1));
+            const current = all[all.length-1-chargeOffset], older = all[all.length-2-chargeOffset];
+            const previous = older && current && older.era === current.era ? older : null;
+            cv.scroll=all.length>1;
+            const ex = G.panel(cv,t,24,44,960,468,'Charging power by charge level').h-468;
+            G.button(cv,t,704,54,120,38,'Newer',()=>browseHistory('lab',-1),{key:'charge-newer',busy:!chargeOffset});
+            G.button(cv,t,840,54,120,38,'Older',()=>browseHistory('lab',1),{key:'charge-older',busy:chargeOffset+1>=all.length});
+            const series=[];
+            [previous,current].forEach((c,index) => {
+                if (!c) return;
+                let pts=[], segment=null;
+                const flush=()=>{ if(pts.length) series.push({pts,color:index?GO:t.dim,width:index?4:2}); pts=[]; };
+                c.points.forEach(p=>{
+                    if (!G.isNum(p.soc) || p.segment!==segment) flush();
+                    segment=p.segment;
+                    if(G.isNum(p.soc)) pts.push([p.soc,p.kw]);
+                }); flush();
+            });
+            const top=Math.max(25,Math.ceil(Math.max(...[previous,current].filter(Boolean).map(c=>c.peak),0)/25)*25);
+            cv.text(current ? (current===history.charge ? 'LIVE SESSION' : shortDate(current.start)) : 'NO SESSION YET',48,125,22,GO,{font:'bold'});
+            cv.text(previous ? 'GREY · '+shortDate(previous.start) : '',960,125,20,t.dim,{align:'right'});
+            const chart=G.chart(cv,t,48,155,912,280+ex,{xMin:0,xMax:100,yMin:0,yMax:top,xStep:20,xUnit:'%',yUnit:'kW',series,
+                empty:series.length ? '' : 'Waiting for charging power and charge level'});
+            series.forEach(s=>s.pts.forEach(p=>cv.circle(chart.X(p[0]),chart.Y(p[1]),3,s.color)));
+            cv.text('Battery-side power · gaps stay separate',48,488+ex,20,t.dim);
+            G.panel(cv,t,1008,44,568,468,'Observed session');
+            row(cv,t,1032,520,139,'CHARGE',current ? num(current.from,0,'%')+' - '+num(current.to,0,'%'):'--');
+            row(cv,t,1032,520,205,'ENERGY ADDED',current ? num(current.kwh,2,'kWh'):'--');
+            row(cv,t,1032,520,271,'PEAK POWER',current ? num(current.peak,0,'kW'):'--');
+            row(cv,t,1032,520,337,'RECORDED TIME',current ? num(current.seconds/60,1,'min'):'--');
+            const temps=current ? current.points.map(p=>p.temp).filter(G.isNum) : [];
+            row(cv,t,1032,520,403,'PACK TEMPERATURE',temps.length ? num(T(Math.min(...temps)),0,'')+' - '+num(T(Math.max(...temps)),0,tU()):'--');
+            cv.text(!current ? 'Records automatically while charging.' : current.partial ? 'PARTIAL · telemetry interrupted' : 'Observed while the app is awake',1032,484+ex,22,t.dim);
+        }
+
+        function renderTrends(cv,t,d) {
+            const history=insightData(d), era=history.era || 0;
+            const caps=history.capacities.filter(p=>p.era===era), days=history.days.filter(p=>p.era===era);
+            const last=caps[caps.length-1], latestDay=days[days.length-1], now=Date.now(), day=86400000;
+            const ex=G.panel(cv,t,24,44,960,468,'Usable capacity history').h-468;
+            const minT=caps.length ? caps[0].t : now-30*day, span=Math.max(1,Math.ceil((now-minT)/day));
+            const vals=caps.map(p=>p.kwh), low=vals.length ? Math.max(0,Math.floor(Math.min(...vals)-2)) : 0;
+            const high=vals.length ? Math.ceil(Math.max(...vals)+2) : 100;
+            const groups=['learned','reported'].map(source=>({color:source==='learned'?GO:'#2a8cff',width:3,
+                pts:caps.filter(p=>p.source===source).map(p=>[(p.t-minT)/day,p.kwh])}));
+            cv.text('GREEN · learned',48,125,21,GO); cv.text('BLUE · reported',960,125,21,'#2a8cff',{align:'right'});
+            const chart=G.chart(cv,t,48,155,912,280+ex,{xMin:0,xMax:span,yMin:low,yMax:high,yUnit:'kWh',
+                xFmt:v=>shortDate(minT+v*day),series:groups,empty:caps.length?'':'Waiting for capacity readings'});
+            caps.forEach(p=>cv.circle(chart.X((p.t-minT)/day),chart.Y(p.kwh),4,p.source==='learned'?GO:'#2a8cff'));
+            cv.text('Capacity estimates vary with conditions; this is not a health score.',48,488+ex,20,t.dim);
+            G.panel(cv,t,1008,44,568,468,'Battery observations');
+            row(cv,t,1032,520,138,'LATEST CAPACITY',last ? num(last.kwh,1,'kWh'):'--');
+            row(cv,t,1032,520,193,'RECORDED',last ? shortDate(last.t)+' · '+last.source:'--');
+            row(cv,t,1032,520,248,'PACK TEMP RANGE',latestDay && G.isNum(latestDay.minTemp) ? num(T(latestDay.minTemp),0,'')+' - '+num(T(latestDay.maxTemp),0,tU()):'--');
+            row(cv,t,1032,520,303,'MAX CELL SPREAD',latestDay ? num(latestDay.spread,0,'mV'):'--');
+            const recent=days.slice(-14), minDay=recent.length ? recent[0].day : Math.floor(now/day)-13;
+            const top=Math.max(20,Math.ceil(Math.max(...recent.map(p=>p.spread || 0),0)/10)*10);
+            cv.text('DAILY MAX CELL SPREAD',1032,352,18,t.dim,{font:'bold'});
+            const cellPoints=recent.filter(p=>G.isNum(p.spread)).map(p=>[p.day-minDay,p.spread]);
+            const cellChart=G.chart(cv,t,1032,365,520,106+ex,{xMin:0,xMax:Math.max(1,recent.length ? recent[recent.length-1].day-minDay:13),
+                yMin:0,yMax:top,yUnit:'mV',xFmt:v=>shortDate((minDay+v)*day),
+                series:[{pts:cellPoints,color:t.text}],empty:cellPoints.length ? '' : 'No cell readings yet'});
+            cellPoints.forEach(p=>cv.circle(cellChart.X(p[0]),cellChart.Y(p[1]),3,t.text));
+            cv.text(latestDay ? shortDate(latestDay.t)+' · spread at '+num(latestDay.soc,0,'%') : 'Temperature and charge level affect cell spread.',1032,494+ex,18,t.dim);
+        }
+
         function render() {
             const t = ctx.theme();
             let d = data();
@@ -886,6 +1022,9 @@ mgu.run({
             else if (pg[page] === 'energy') renderEnergy(cv, t, d);
             else if (pg[page] === 'log') renderLog(cv, t, d);
             else if (pg[page] === 'charging') renderCharging(cv, t, d);
+            else if (pg[page] === 'journeys') renderJourneys(cv, t, d);
+            else if (pg[page] === 'lab') renderChargeLab(cv, t, d);
+            else if (pg[page] === 'trends') renderTrends(cv, t, d);
             else renderMain(cv, t, d);
             header(cv, t, d);
             return ui.image('MAIN_GFX', cv);
@@ -896,7 +1035,7 @@ mgu.run({
         settings.onChange((k) => {
             if (k === 'demo') {
                 capacityLearner.anchor = null; capacityLearner.candidate = null;
-                seg.valid = false;
+                seg.valid = false; insights.breakContinuity();
             }
             if (k === 'poll') schedule();
             if (k === 'diagPage') actionLabel();

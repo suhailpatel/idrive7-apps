@@ -8,6 +8,7 @@ vehicle-validated on a G08. Newer iDrive platforms are outside this release's sc
 ## Features
 
 - Range, Energy, Battery, Charging and Charge log pages, plus optional diagnostics.
+- Journey Journal, Charging Lab and Battery Trends pages with persistent history.
 - Dashboard cards for range to reserve, charge, pack temperature/voltage, recent
   and trip efficiency, recorded distance/time, net energy, regeneration and peak
   draw. Trip efficiency uses matched power and speed samples; gaps and charging
@@ -22,6 +23,36 @@ vehicle-validated on a G08. Newer iDrive platforms are outside this release's sc
   sleep/restart. Energy and cost are estimates, not charger meter readings.
 - Separate settings, history and learning in the app's own data directory.
   Telemetry is published to `/tmp/mgu-ixdrive.json`, separate from eDrive.
+
+## Journey, charging and battery history
+
+**Journey Journal** starts when fresh speed and power show movement. It records
+matched distance/energy, regeneration, observed duration and outside temperature.
+Five minutes without movement ends the journey; charging also ends it. Restarted
+or interrupted recordings are marked partial. The page lists trips and compares
+weighted consumption for the last seven days with the previous seven, with an
+estimated energy cost at the current tariff. No GPS routes are collected.
+
+**Charging Lab** records battery-side charging power against SOC, observed energy,
+peak power, duration and pack temperature. It compares the selected session with
+the preceding session. Grey is the older curve; green is the selected curve.
+Gaps, restarts and pauses split the curve. No curve or energy is reconstructed
+while asleep. An SOC rise across sleep may appear in the existing Charge Log
+without a matching Charging Lab curve. Negative power while moving is regen.
+
+**Battery Trends** records daily capacity points separately for learned and
+reported capacity, plus daily temperature ranges and maximum cell-voltage spread
+with its SOC. Cached capacity values do not produce new observations. These are
+observations under varying conditions, not a battery-health diagnosis. Changes
+to the diagnostic calibration start a new series; completed records remain saved.
+
+History retains up to 200 journeys, 20 charging recordings (240 curve points
+each), 365 capacity points and 365 daily battery observations in the app's own
+storage. Use the controller/touch scroll or Newer/Older buttons to browse journeys
+and charge recordings; the standard HMI has an Older action. Demo histories are
+synthetic and never saved. Recording uses existing telemetry and does not add
+polling or keep the parked car awake. Unsupported power readings cannot produce
+journey or charging recordings.
 
 ## Automatic vehicle values
 
@@ -94,6 +125,7 @@ The unique app ID permits installation alongside eDrive.
 
 ```sh
 node kit/tools/test_ixdrive.js
+node kit/tools/test_ixdrive_insights.js
 node kit/tools/test_edrive.js
 node kit/tools/test_widget_fixes.js
 python3 kit/tools/build.py --preview-only ixdrive

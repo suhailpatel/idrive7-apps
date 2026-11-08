@@ -392,10 +392,47 @@ const checks = [
         assert(text.includes('7.7'),'12.4 km converts to 7.7 mi');
         assert(text.includes('77 °F'));
     }],
+    ['live samples persist journey and charging histories for the new pages', async () => {
+        const dir=tmp('insights-wire');
+        replies={'7:DDB4':'9C 40','7:DD69':'FF FF EC 78'};
+        try {
+            const b=await boot(dir,{soc:60});await b.read();
+            for(let i=0;i<40;i++){now+=2000;b.drive(60);await power();}
+            b.exit();assert(state(dir).insights.journey.km>1);
+            for(let i=0;i<5;i++)await b.page();
+            const journeyText=await b.draw();assert(journeyText.includes('LIVE'));
+            replies['7:DD69']='00 00 17 70';
+            for(let i=0;i<20;i++){now+=2000;b.drive(0);if(i===0)await b.read();await power();}
+            b.exit();
+            const h=state(dir).insights;
+            assert.strictEqual(h.journeys.length,1);
+            assert(h.charge.kwh>0 && h.charge.points.length>0);
+            await b.page();const lab=await b.draw();
+            assert(lab.includes('LIVE SESSION'));assert(lab.includes('24 kW'));
+        } finally {replies={};}
+    }],
+    ['history pages browse older records through the HMI action', async () => {
+        const b=await boot(tmp('history-browse'),{},{demo:'on'});
+        for(let i=0;i<5;i++)await b.page();
+        assert((await b.draw()).includes('1 - 7 / 12'));
+        await b.readNow();assert((await b.draw()).includes('8 - 12 / 12'));
+        await b.page();assert((await b.draw()).includes('130 kW'));
+        await b.readNow();assert((await b.draw()).includes('145 kW'));
+    }],
+    ['demo insights never write synthetic history', async () => {
+        const dir=tmp('demo-insights'),b=await boot(dir,{soc:60},{demo:'on'});
+        for(let i=0;i<9;i++){await b.draw();await b.page();}
+        b.exit();
+        const file=path.join(dir,'battery.json');
+        if(fs.existsSync(file)) {
+            const h=state(dir).insights;
+            assert(!h.journeys.length && !h.charges.length && !h.capacities.length && !h.days.length);
+        }
+    }],
     ['every page renders with missing telemetry and demo data', async () => {
         for(const demo of ['off','on']) {
             const b=await boot(tmp('pages'),{},{demo,diagPage:true});
-            for(let i=0;i<6;i++){
+            for(let i=0;i<9;i++){
                 const texts=await b.draw();
                 assert(texts.length>0);
                 assert(!texts.some(s=>/NaN|Infinity|ENGINE|HYBRID|ALTERNATOR/.test(s)),texts.join(' | '));
