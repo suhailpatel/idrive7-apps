@@ -1,0 +1,691 @@
+{
+  "id": "ixdrive",
+  "title": "iXDrive",
+  "description": "Battery-electric telemetry for iDrive 7, focused on the G08 iX3: automatic battery-capacity learning and power scales, range, cells, charging estimates and history. iDrive 7 runtime; vehicle diagnostics require validation.",
+  "version": "0.1.0",
+  "vendor": "custom",
+  "loggingId": "OAXD",
+  "iconGlyph": "iX",
+  "signals": {
+    "com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu": {
+      "_instances": "SystemFunctionsInternalTasuInst1",
+      "_methods": [
+        "sendTasuRequest"
+      ],
+      "_broadcasts": [
+        "sendTasuResponse"
+      ]
+    },
+    "de.bmw.infrastructure.EnvironmentalInformation": {
+      "ExteriorTemperature": "s"
+    },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs",
+      "highVoltageStorageInfoToExternal": "s"
+    },
+    "de.bmw.infotainment.climate.climatemaster.ClimateMaster": {
+      "statusClimateSystemOn": "rs",
+      "statusAirCondAC": "rs"
+    },
+    "de.bmw.infotainment.climate.Climate2": {
+      "statusACFront": "rs",
+      "statusAirConditionDRStatus": "rs",
+      "statusActualValuePowerACCompressor": "rs"
+    },
+    "de.bmw.infotainment.climate.Climate": {
+      "statusSeatHeatingDR": "rs",
+      "statusSeatHeatingPS": "rs",
+      "statusSeatHeatingDRR": "rs",
+      "statusSeatHeatingPSR": "rs"
+    },
+    "de.bmw.body.steeringwheelcomfort.SteeringWheelClimate": {
+      "heatingState": "rs"
+    },
+    "de.bmw.infotainment.KombiIF": {
+      "statusDisplayElectricalPowerDistribution": "rs"
+    },
+    "de.bmw.infotainment.drivingexcitement.Efficiencytainment2": {
+      "statusBatteryTemperature": "rs"
+    },
+    "de.bmw.infotainment.lsc.LSCDataSink": {
+      "statusHighVoltageStorage": "s"
+    }
+  },
+  "startWidget": {
+    "comment": "Home-screen widget. Layout and cell names are those of BMW's Drive Recorder widget on this firmware: the drawn image goes into BackgroundImage1, the layout shows Title above it. If the image doesn't show or sits wrong, try another 'image' cell or adjust 'size' (pixels: the HMI scales the picture to the big widget and crops it centred; 384 x 256 fits the G05).",
+    "name": "iXDrive",
+    "layout": "LT_Table_OnlineApps_DriveRecorderWidget",
+    "image": "BackgroundImage1",
+    "scale": 2,
+    "size": [
+      384,
+      256
+    ],
+    "safe": [
+      0.09,
+      0.17
+    ],
+    "cells": {
+      "ErrorInfo": [
+        false,
+        "Bool"
+      ],
+      "background": [
+        true,
+        "Bool"
+      ],
+      "ProgressbarVisible": [
+        false,
+        "Bool"
+      ],
+      "TextRecordings": [
+        "",
+        "Text"
+      ]
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "iXDrive",
+      "buttons": [
+        [
+          "BTN_READ",
+          "Read now"
+        ],
+        [
+          "BTN_PAGE",
+          "Next page"
+        ],
+        [
+          "BTN_PREV",
+          "Previous page"
+        ],
+        [
+          "BTN_SETTINGS",
+          "Settings"
+        ]
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "reserve",
+      "label": "Arrival reserve",
+      "type": "choice",
+      "default": "0",
+      "options": [
+        [
+          "0",
+          "0 %"
+        ],
+        [
+          "5",
+          "5 %"
+        ],
+        [
+          "10",
+          "10 %"
+        ],
+        [
+          "15",
+          "15 %"
+        ],
+        [
+          "20",
+          "20 %"
+        ]
+      ]
+    },
+    {
+      "key": "chargeTarget",
+      "label": "Charge estimate target (does not control car)",
+      "type": "number",
+      "unit": "%",
+      "default": 80,
+      "steps": [
+        50,
+        60,
+        70,
+        80,
+        90,
+        100
+      ]
+    },
+    {
+      "key": "price",
+      "label": "Electricity price",
+      "type": "number",
+      "unit": "EUR/kWh",
+      "default": 0.25,
+      "steps": [
+        0,
+        0.05,
+        0.1,
+        0.12,
+        0.15,
+        0.16,
+        0.17,
+        0.18,
+        0.19,
+        0.2,
+        0.21,
+        0.22,
+        0.23,
+        0.24,
+        0.25,
+        0.26,
+        0.27,
+        0.28,
+        0.29,
+        0.3,
+        0.31,
+        0.32,
+        0.33,
+        0.34,
+        0.35,
+        0.36,
+        0.37,
+        0.38,
+        0.39,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.7
+      ]
+    },
+    {
+      "key": "distUnit",
+      "label": "Distance unit",
+      "type": "choice",
+      "default": "km",
+      "options": [
+        [
+          "km",
+          "km"
+        ],
+        [
+          "mi",
+          "miles"
+        ]
+      ]
+    },
+    {
+      "key": "tempUnit",
+      "label": "Temperature unit",
+      "type": "choice",
+      "default": "c",
+      "options": [
+        [
+          "c",
+          "Celsius"
+        ],
+        [
+          "f",
+          "Fahrenheit"
+        ]
+      ]
+    },
+    {
+      "key": "diagPage",
+      "label": "Diagnostics pages (UDS replies, scan, raw signals)",
+      "type": "bool",
+      "default": false
+    },
+    {
+      "key": "poll",
+      "label": "Read charge every",
+      "type": "number",
+      "unit": "s",
+      "default": 15,
+      "steps": [
+        5,
+        10,
+        15,
+        30,
+        60
+      ],
+      "when": {
+        "diagPage": true
+      }
+    },
+    {
+      "key": "sohDays",
+      "label": "Read battery health every",
+      "type": "number",
+      "unit": "days",
+      "default": 7,
+      "steps": [
+        1,
+        7,
+        30
+      ],
+      "when": {
+        "diagPage": true
+      }
+    },
+    {
+      "key": "widgetFps",
+      "label": "Home-screen widget: redraw per second",
+      "type": "number",
+      "unit": "fps",
+      "default": 8,
+      "steps": [
+        2,
+        4,
+        8,
+        12
+      ],
+      "when": {
+        "diagPage": true
+      }
+    },
+    {
+      "key": "slowPoll",
+      "label": "Read cells, temperatures, limits every",
+      "type": "number",
+      "unit": "s",
+      "default": 5,
+      "steps": [
+        2,
+        5,
+        10,
+        30
+      ],
+      "when": {
+        "diagPage": true
+      }
+    },
+    {
+      "key": "scanUnit",
+      "label": "Scan page: control unit",
+      "type": "choice",
+      "default": "7",
+      "options": [
+        [
+          "7",
+          "Battery (SME 0x07)"
+        ],
+        [
+          "120",
+          "Climate, heater, A/C (IHKA 0x78)"
+        ]
+      ],
+      "when": {
+        "diagPage": true
+      }
+    },
+    {
+      "key": "theme",
+      "label": "Colour theme",
+      "type": "choice",
+      "default": "ice",
+      "options": [
+        [
+          "m_red",
+          "M Red"
+        ],
+        [
+          "m_tricolour",
+          "M Tricolour"
+        ],
+        [
+          "ice",
+          "Ice White"
+        ],
+        [
+          "amber",
+          "Night Amber"
+        ]
+      ]
+    },
+    {
+      "key": "layout",
+      "label": "Screen layout",
+      "type": "choice",
+      "default": "full",
+      "options": [
+        [
+          "full",
+          "Full screen"
+        ],
+        [
+          "standard",
+          "Standard"
+        ]
+      ]
+    },
+    {
+      "key": "renderer",
+      "label": "Renderer",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "GPU 60 fps (default)"
+        ],
+        [
+          "software",
+          "Software"
+        ]
+      ]
+    },
+    {
+      "key": "demo",
+      "label": "Demo data",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Never"
+        ],
+        [
+          "on",
+          "Always"
+        ]
+      ]
+    }
+  ],
+  "config": {
+    "comment": "Read-only UDS candidates inherited from eDrive, not validated on the G08 iX3. Validate ECU, payload, units and sign on each vehicle. Capacity and SOH candidates stay empty until their usable-kWh/health meaning is verified. Current usable capacity can be learned from synchronized power and displayed SOC. No model name or nominal battery size is assumed.",
+    "battery": {
+      "ecu": 7,
+      "soc": [
+        {
+          "did": "DDBC",
+          "bytes": 2,
+          "at": 0,
+          "factor": 0.1,
+          "offset": 0,
+          "min": 0,
+          "max": 100
+        }
+      ],
+      "soh": [],
+      "v12": [
+        {
+          "ecu": 7,
+          "did": "F442",
+          "bytes": 2,
+          "at": 0,
+          "factor": 0.001,
+          "offset": 0,
+          "min": 5,
+          "max": 18
+        }
+      ],
+      "chargeMinPct": 1,
+      "powerSign": -1,
+      "fast": {
+        "hvV": [
+          {
+            "did": "DDB4",
+            "timeoutMs": 600,
+            "fields": {
+              "v": {
+                "bytes": 2,
+                "factor": 0.01,
+                "min": 150,
+                "max": 500
+              }
+            },
+            "note": "confirmed on the X5 45e"
+          },
+          {
+            "did": "DD68",
+            "fields": {
+              "v": {
+                "bytes": 2,
+                "factor": 0.01,
+                "min": 150,
+                "max": 500
+              }
+            }
+          },
+          {
+            "did": "DD66",
+            "fields": {
+              "v": {
+                "bytes": 2,
+                "factor": 0.01,
+                "min": 150,
+                "max": 500
+              }
+            }
+          },
+          {
+            "did": "DDEF",
+            "fields": {
+              "v": {
+                "bytes": 2,
+                "factor": 1,
+                "min": 150,
+                "max": 500
+              }
+            }
+          }
+        ],
+        "hvI": [
+          {
+            "did": "DD69",
+            "timeoutMs": 600,
+            "fields": {
+              "a": {
+                "bytes": 4,
+                "factor": 0.01,
+                "signed": true,
+                "min": -2000,
+                "max": 2000
+              }
+            }
+          }
+        ]
+      },
+      "slow": {
+        "soc": [
+          {
+            "did": "DDBC",
+            "fields": {
+              "pct": {
+                "bytes": 2,
+                "factor": 0.1,
+                "min": 0,
+                "max": 100
+              }
+            }
+          }
+        ],
+        "cellV": [
+          {
+            "did": "DFA5",
+            "array": {
+              "bytes": 2,
+              "factor": 0.001,
+              "min": 2.5,
+              "max": 4.4
+            },
+            "note": "every cell's voltage, 2 bytes each (96 on the X5 45e): found with the Scan page"
+          },
+          {
+            "did": "DDBF",
+            "fields": {
+              "min": {
+                "at": 0,
+                "bytes": 2,
+                "factor": 0.001,
+                "min": 2.5,
+                "max": 4.4
+              },
+              "max": {
+                "at": 2,
+                "bytes": 2,
+                "factor": 0.001,
+                "min": 2.5,
+                "max": 4.4
+              }
+            }
+          }
+        ],
+        "cellT": [
+          {
+            "did": "DDC0",
+            "fields": {
+              "min": {
+                "at": 0,
+                "bytes": 2,
+                "factor": 0.01,
+                "signed": true,
+                "min": -40,
+                "max": 80
+              },
+              "max": {
+                "at": 2,
+                "bytes": 2,
+                "factor": 0.01,
+                "signed": true,
+                "min": -40,
+                "max": 80
+              },
+              "avg": {
+                "at": 4,
+                "bytes": 2,
+                "factor": 0.01,
+                "signed": true,
+                "min": -40,
+                "max": 80
+              }
+            }
+          }
+        ],
+        "coolant": [
+          {
+            "did": "DD6C",
+            "fields": {
+              "t": {
+                "bytes": 2,
+                "factor": 0.01,
+                "signed": true,
+                "min": -40,
+                "max": 100
+              }
+            }
+          }
+        ],
+        "limits": [
+          {
+            "did": "DD7D",
+            "fields": {
+              "chargeA": {
+                "at": 0,
+                "bytes": 2,
+                "factor": 0.1,
+                "min": 0,
+                "max": 2000
+              },
+              "dischargeA": {
+                "at": 2,
+                "bytes": 2,
+                "factor": 0.1,
+                "min": 0,
+                "max": 2000
+              }
+            }
+          }
+        ]
+      },
+      "socWindow": {
+        "empty": 0,
+        "full": 100,
+        "comment": "Expected displayed SOC. If the verified DID reports physical SOC, set its measured empty/full limits; shared by the main page and live/widget reader."
+      },
+      "capacity": []
+    },
+    "scaling": {
+      "batteryTemp": {
+        "factor": 1,
+        "offset": -50,
+        "invalid": 255,
+        "comment": "HV battery temperature (Efficiencytainment2.statusBatteryTemperature, avg / min / max): raw on the Signals page - adjust if it doesn't match. X5 45e: raw 76 with the cells at ~26 C (DDC0), so -50"
+      },
+      "ambient": {
+        "factor": 0.5,
+        "offset": -40,
+        "invalid": 255
+      },
+      "acPower": {
+        "factor": 0.001,
+        "offset": 0,
+        "invalid": 65535,
+        "max": 8,
+        "comment": "Climate2.statusActualValuePowerACCompressor -> kW. Assumed to come in W: check the raw value on the Signals page with the A/C on (an electric compressor uses ~0.5-4 kW) and adjust factor if needed"
+      }
+    },
+    "probes": [
+      {
+        "name": "ac",
+        "ecu": 120,
+        "did": "D8D2",
+        "at": 1,
+        "bytes": 2,
+        "factor": 0.001,
+        "note": "IHKA: A/C compressor power in W (X5 45e: 280-680 W on LO)"
+      },
+      {
+        "name": "heater",
+        "ecu": 120,
+        "did": "D8D3",
+        "at": 1,
+        "bytes": 2,
+        "factor": 0.001,
+        "note": "IHKA: HV heater power in W (X5 45e: 5520 W on HIGH, matched the battery measurement)"
+      }
+    ],
+    "scanKnown": {
+      "comment": "identifiers that answered a full scan on the X5 45e: the live comparison reads these when the unit has no saved scan",
+      "120": [
+        "D8C3",
+        "D8C4",
+        "D8C5",
+        "D8C7",
+        "D8CB",
+        "D8CC",
+        "D8CD",
+        "D8D0",
+        "D8D2",
+        "D8D3",
+        "D8D5",
+        "D8D7",
+        "D8D8",
+        "D8D9",
+        "D8DB",
+        "D8DD",
+        "D8DE",
+        "D8DF",
+        "D8E1",
+        "D8E2",
+        "D905",
+        "D918",
+        "D9A7",
+        "D9AC",
+        "D9AD",
+        "4020",
+        "4021",
+        "4022",
+        "4023",
+        "4024",
+        "4026",
+        "4027",
+        "4036",
+        "4038",
+        "4039",
+        "403C",
+        "403D"
+      ]
+    }
+  }
+}
