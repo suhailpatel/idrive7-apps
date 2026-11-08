@@ -102,8 +102,10 @@ node kit/tools/preview.js dist/ixdrive /tmp/ixdrive-preview BTN_PAGE BTN_PAGE BT
 
 The preview tool forces demo data. An offline preview is not an installable
 package. With the BMW `oap-sdk` present, `python3 kit/tools/build.py ixdrive`
-produces `dist/ixdrive@0.1.0.tgz`. Regenerate the text icon with
-`node kit/tools/make_icon.js iX apps/ixdrive/icon.png`.
+produces `dist/ixdrive@0.1.0.tgz`. The launcher uses `icon.png`: a white
+electric SUV with a cyan lightning bolt, rendered at 140 × 140 pixels.
+The artwork was created with built-in image generation; its final prompt is
+recorded in `icon-prompt.txt`. The build copies the icon directly.
 
 Synthetic tests cover independent identity, low SOC, arrival reserve, missing
 signals, range and capacity learning, power scaling, energy integration, charge

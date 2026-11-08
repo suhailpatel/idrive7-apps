@@ -1,0 +1,5 @@
+Tool: built-in image_gen. Final generation prompt:
+
+Create a finished square 2D electric-car app icon. The background must be completely solid opaque pure black (#000000), NOT transparent. Clean flat geometric vector style: a thick smooth white outline of a front-facing modern SUV, wide black windshield, short white horizontal headlights, simple wheels. A large solid electric cyan (#00c8ef) lightning bolt at center of the black car body. Generous 15% black margin around the centered vehicle. White and cyan are perfectly flat solid colors. Absolutely no distressed texture, no grain, no speckles, no cutout artifacts, no glow, no shadows, no lettering, no logo, no rounded tile, no mockup. Elegant legible pictogram designed to be reduced to 140 by 140 pixels on a black BMW iDrive dashboard. One icon only, with an opaque black background throughout the canvas.
+
+Output resized to 140 × 140 PNG with macOS sips.
