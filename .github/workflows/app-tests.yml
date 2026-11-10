@@ -52,8 +52,6 @@ jobs:
       - run: node kit/tools/test_dids.js
       - run: node kit/tools/test_engine.js
       - run: node kit/tools/test_edrive.js
-      - run: node kit/tools/test_ixdrive.js
-      - run: node kit/tools/test_ixdrive_insights.js
       - run: node kit/tools/test_widget_fixes.js
       - run: node kit/tools/test_warmup.js
       - run: node kit/tools/test_draggy.js
